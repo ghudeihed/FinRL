@@ -130,7 +130,7 @@ class IBProcessor:
         print("Finished calculating turbulence")
         return df
 
-    def df_to_array(self, df, tech_indicator_list):
+    def df_to_array(self, df, tech_indicator_list, if_vix=False):
         print("Converting DataFrame to arrays")
         print("DataFrame columns:", df.columns)
         print("DataFrame head:")
