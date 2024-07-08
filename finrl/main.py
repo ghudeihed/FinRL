@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from argparse import ArgumentParser
 from typing import List
+import asyncio
 
 from finrl.config import ALPACA_API_BASE_URL
 from finrl.config import DATA_SAVE_DIR
@@ -49,7 +50,7 @@ def check_and_make_directories(directories: list[str]):
             os.makedirs("./" + directory)
 
 
-def main() -> int:
+async def main() -> int:
     parser = build_parser()
     options = parser.parse_args()
     check_and_make_directories(
@@ -65,7 +66,7 @@ def main() -> int:
         kwargs = (
             {}
         )  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
-        train(
+        await train(
             start_date=TRAIN_START_DATE,
             end_date=TRAIN_END_DATE,
             ticker_list=DOW_30_TICKER,
@@ -146,4 +147,10 @@ def main() -> int:
 # python main.py --mode=test
 # python main.py --mode=trade
 if __name__ == "__main__":
-    raise SystemExit(main())
+        try:
+            asyncio.run(main())
+        except RuntimeError as e:
+            if str(e).startswith("This event loop is already running"):
+                import nest_asyncio
+                nest_asyncio.apply()
+                asyncio.run(main())

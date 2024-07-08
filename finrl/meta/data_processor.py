@@ -41,10 +41,10 @@ class DataProcessor:
         self.tech_indicator_list = tech_indicator
         self.vix = vix
 
-    def download_data(
+    async def download_data(
         self, ticker_list, start_date, end_date, time_interval
     ) -> pd.DataFrame:
-        df = self.processor.download_data(
+        df = await self.processor.download_data(
             ticker_list=ticker_list,
             start_date=start_date,
             end_date=end_date,

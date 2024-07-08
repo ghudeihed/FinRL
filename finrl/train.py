@@ -13,7 +13,7 @@ from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 # construct environment
 
 
-def train(
+async def train(
     start_date,
     end_date,
     ticker_list,
@@ -28,7 +28,10 @@ def train(
 ):
     # download data
     dp = DataProcessor(data_source, **kwargs)
-    data = dp.download_data(ticker_list, start_date, end_date, time_interval)
+    data = await dp.download_data(ticker_list, start_date, end_date, time_interval)
+    print(f'Downloading data for ticker_list {ticker_list}, start_date {start_date}, end_date {end_date}, and time_interval {time_interval}')
+    print(data.head())
+    print('Data cleaning....')
     data = dp.clean_data(data)
     data = dp.add_technical_indicator(data, technical_indicator_list)
     if if_vix:
