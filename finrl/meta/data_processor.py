@@ -8,6 +8,7 @@ from finrl.meta.data_processors.processor_wrds import WrdsProcessor as Wrds
 from finrl.meta.data_processors.processor_yahoofinance import (
     YahooFinanceProcessor as YahooFinance,
 )
+from finrl.meta.data_processors.processor_interactive_brokers import IBProcessor
 
 
 class DataProcessor:
@@ -27,6 +28,11 @@ class DataProcessor:
 
         elif data_source == "yahoofinance":
             self.processor = YahooFinance()
+
+        elif data_source == "interactive_brokers":
+            from finrl.config import IB_GATEWAY_HOST, IB_GATEWAY_PORT, CLIENT_ID
+            
+            self.processor = IBProcessor(IB_GATEWAY_HOST, IB_GATEWAY_PORT, CLIENT_ID)
 
         else:
             raise ValueError("Data source input is NOT supported yet.")
