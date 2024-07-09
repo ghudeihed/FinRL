@@ -115,7 +115,10 @@ class IBProcessor:
     def clean_data(self, df):
         print("Data cleaning started")
         tic_list = df['tic'].unique()
-        times = pd.date_range(self.start, self.end, freq='D').tz_localize('America/New_York')
+        print(f"tic_list: {tic_list}")
+        
+        times = pd.date_range('2023-01-01', '2023-12-31', freq='D').tz_localize('America/New_York')
+        print(f"times: {times}")
         
         future_results = []
         for tic in tic_list:
@@ -126,6 +129,25 @@ class IBProcessor:
             future_results.append(tmp_df.reset_index().rename(columns={'index': 'timestamp'}))
         
         new_df = pd.concat(future_results).reset_index(drop=True)
+        print(f"new_df: {new_df.head()}")
+        
+        # Ensure 'timestamp' is in datetime format and localized
+        if 'timestamp' in new_df.columns:
+            new_df['timestamp'] = pd.to_datetime(new_df['timestamp'])
+            if new_df['timestamp'].dt.tz is None:
+                new_df['timestamp'] = new_df['timestamp'].dt.tz_localize('America/New_York', ambiguous='infer', nonexistent='shift_forward')
+            else:
+                new_df['timestamp'] = new_df['timestamp'].dt.tz_convert('America/New_York')
+        
+        # If 'level_0' exists, replace 'timestamp' values with 'level_0' to ensure uniqueness
+        if 'level_0' in new_df.columns:
+            new_df['timestamp'] = pd.to_datetime(new_df['level_0'], unit='s')
+            if new_df['timestamp'].dt.tz is None:
+                new_df['timestamp'] = new_df['timestamp'].dt.tz_localize('America/New_York', ambiguous='infer', nonexistent='shift_forward')
+            else:
+                new_df['timestamp'] = new_df['timestamp'].dt.tz_convert('America/New_York')
+            new_df = new_df.drop(columns=['level_0'])
+        
         print("Data cleaning finished")
         return new_df
     
@@ -145,15 +167,27 @@ class IBProcessor:
             indicator_df = pd.DataFrame()
             for tic in unique_ticker:
                 try:
-                    temp_indicator = stock[stock.tic == tic][indicator]
+                    temp_indicator = stock[stock.tic == tic][[indicator]]
                     temp_indicator = pd.DataFrame(temp_indicator)
                     temp_indicator["tic"] = tic
-                    # Rename the index column to 'timestamp' within temp_indicator
-                    temp_indicator = temp_indicator.rename_axis('timestamp').reset_index() 
+                    temp_indicator["timestamp"] = stock[stock.tic == tic].index
+                    temp_indicator["timestamp"] = pd.to_datetime(temp_indicator["timestamp"])
+                    # Ensure timestamp is in the correct time zone
+                    if temp_indicator['timestamp'].dt.tz is None:
+                        temp_indicator['timestamp'] = temp_indicator['timestamp'].dt.tz_localize('America/New_York', ambiguous='infer', nonexistent='shift_forward')
+                    else:
+                        temp_indicator['timestamp'] = temp_indicator['timestamp'].dt.tz_convert('America/New_York')
+                    
+                    print(f"temp_indicator: {temp_indicator.head()}")  # Debug print
                     indicator_df = pd.concat([indicator_df, temp_indicator], axis=0, ignore_index=True)
                 except Exception as e:
                     print(e)
-            # Rename 'index' to 'timestamp' after concatenation for consistency
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            if df['timestamp'].dt.tz is None:
+                df['timestamp'] = df['timestamp'].dt.tz_localize('America/New_York', ambiguous='infer', nonexistent='shift_forward')
+            else:
+                df['timestamp'] = df['timestamp'].dt.tz_convert('America/New_York')
+                
             df = df.merge(
                 indicator_df[["tic", "timestamp", indicator]], on=["tic", "timestamp"], how="left"
             )
@@ -185,64 +219,100 @@ class IBProcessor:
         
         return df
 
-    def calculate_turbulence(self, df, window=252):
+    def calculate_turbulence(self, data, time_period=252):
         print("Calculating turbulence")
-        df = df.pivot(index='timestamp', columns='tic', values='close').pct_change()
-        turbulence_index = df.rolling(window=window).apply(lambda x: np.linalg.det(x.cov()), raw=False)
-        turbulence_index = turbulence_index.reset_index().melt(id_vars='timestamp', var_name='tic', value_name='turbulence')
-        df = df.reset_index().melt(id_vars='timestamp', var_name='tic', value_name='close').merge(turbulence_index, on=['timestamp', 'tic'], how='left')
+        print(f"Columns: {data.columns}")
+        df = data.copy()
+        df_price_pivot = df.pivot(index="timestamp", columns="tic", values="close")
+        df_price_pivot = df_price_pivot.pct_change()
+
+        # Ensure no duplicate timestamps
+        df_price_pivot = df_price_pivot[~df_price_pivot.index.duplicated(keep='first')]
+
+        unique_date = df.timestamp.unique()
+        start = time_period
+        turbulence_index = [0] * start
+        count = 0
+        for i in range(start, len(unique_date)):
+            current_price = df_price_pivot[df_price_pivot.index == unique_date[i]]
+            hist_price = df_price_pivot[
+                (df_price_pivot.index < unique_date[i])
+                & (df_price_pivot.index >= unique_date[i - time_period])
+            ]
+            filtered_hist_price = hist_price.iloc[
+                hist_price.isna().sum().min() :
+            ].dropna(axis=1)
+
+            if filtered_hist_price.shape[1] == 0:
+                turbulence_temp = 0
+            else:
+                cov_temp = filtered_hist_price.cov()
+                current_temp = current_price[[x for x in filtered_hist_price.columns]] - np.mean(
+                    filtered_hist_price, axis=0
+                )
+                # Regularize the covariance matrix
+                cov_temp += np.eye(cov_temp.shape[0]) * 1e-6
+                try:
+                    temp = current_temp.values.dot(np.linalg.pinv(cov_temp)).dot(
+                        current_temp.values.T
+                    )
+                    if temp > 0:
+                        count += 1
+                        if count > 2:
+                            turbulence_temp = temp[0][0]
+                        else:
+                            turbulence_temp = 0
+                    else:
+                        turbulence_temp = 0
+                except np.linalg.LinAlgError as e:
+                    print(f"LinAlgError: {e}")
+                    turbulence_temp = 0
+            turbulence_index.append(turbulence_temp)
+
+        turbulence_index = pd.DataFrame(
+            {"timestamp": df_price_pivot.index, "turbulence": turbulence_index}
+        )
         print("Finished calculating turbulence")
+        return turbulence_index
+
+    def add_turbulence(self, data, time_period=252):
+        print("Add turbulence")
+        df = data.copy()
+        turbulence_index = self.calculate_turbulence(df, time_period=time_period)
+        df = df.merge(turbulence_index, on="timestamp")
+        df = df.sort_values(["timestamp", "tic"]).reset_index(drop=True)
         return df
 
-    def df_to_array(self, df, tech_indicator_list, if_vix=False):
-        """
-        Converts a DataFrame containing stock data into numpy arrays for price and technical indicators.
-
-        Args:
-            df (pd.DataFrame): DataFrame containing stock data with columns 'tic', 'timestamp', 'close', 
-                            and the specified technical indicators.
-            tech_indicator_list (list): List of technical indicator column names to include.
-            if_vix (bool, optional): Whether to include VIX data (not applicable for Interactive Brokers). Defaults to False.
-
-        Returns:
-            tuple: A tuple containing:
-                - price_array (np.ndarray): 2D numpy array with rows as timestamps and columns as stock tickers, 
-                                            containing the close prices.
-                - tech_array (np.ndarray): 2D numpy array with the same shape as price_array, containing the 
-                                        values of the specified technical indicators.
-        """
-
+    def df_to_array(self, df: pd.DataFrame, tech_indicator_list: list[str], if_vix: bool=False):
         print("Converting DataFrame to arrays...")
         print("DataFrame columns:", df.columns)
         print("DataFrame head:")
         print(df.head().to_markdown(index=False,numalign="left", stralign="left"))  # Formatted output
 
-        # Ensure 'timestamp' is datetime type
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-        # Group by 'tic' and 'timestamp' to ensure unique combinations
-        # and select the last non-null values
-        df_merged_data = (
-            df.sort_values(by=["tic", "timestamp"])  # Sort for consistent aggregation
-            .groupby(["tic", "timestamp"])
-            .last()
-            .reset_index()
-            .dropna()
-        )  # Drop rows with NaN values (typically first rows)
-
-        # Pivot for price and technical indicators
-        price_array = df_merged_data.pivot(index='timestamp', columns='tic', values='close').values
-        tech_array = df_merged_data.pivot(index='timestamp', columns='tic', values=tech_indicator_list).values
-
-        # Convert arrays to the correct data type to mitigate potential errors with DRL libraries.
-        price_array = price_array.astype(np.float32)
-        tech_array = tech_array.astype(np.float32)
-
+        df = df.copy()
+        unique_ticker = df.tic.unique()
+        if_first_time = True
+        for tic in unique_ticker:
+            if if_first_time:
+                price_array = df[df.tic == tic][["close"]].values
+                tech_array = df[df.tic == tic][tech_indicator_list].values
+                if if_vix:
+                    turbulence_array = df[df.tic == tic]["VIX"].values
+                else:
+                    turbulence_array = df[df.tic == tic]["turbulence"].values
+                if_first_time = False
+            else:
+                price_array = np.hstack(
+                    [price_array, df[df.tic == tic][["close"]].values]
+                )
+                tech_array = np.hstack(
+                    [tech_array, df[df.tic == tic][tech_indicator_list].values]
+                )
         # Print shapes for debugging (optional)
         print("Price array shape:", price_array.shape)
         print("Tech array shape:", tech_array.shape)
-        return price_array, tech_array
-
+        print("Turbulence array shape:", turbulence_array.shape)
+        return price_array, tech_array, turbulence_array
 
 async def main():
     ib_processor = IBProcessor(IB_GATEWAY_HOST='127.0.0.1', IB_GATEWAY_PORT=7497)
@@ -266,13 +336,15 @@ async def main():
         
         data_with_vix = ib_processor.add_vix(data_with_indicators)
         
-        print("Final DataFrame columns:", data_with_vix.columns)
+        data_with_turbulence = ib_processor.add_turbulence(data_with_vix)
+        print("Final DataFrame columns:", data_with_turbulence.columns)
         print("Final DataFrame head:")
-        print(data_with_vix.head())
+        print(data_with_turbulence.head())
         
-        price_array, tech_array = ib_processor.df_to_array(data_with_vix, tech_indicator_list=['macd', 'rsi_30'])
+        price_array, tech_array, turbulence_array = ib_processor.df_to_array(data_with_turbulence, tech_indicator_list=['macd', 'rsi_30'])
         print("Price array shape:", price_array.shape)
         print("Tech array shape:", tech_array.shape)
+        print("Turbulence array shape:", turbulence_array.shape)
     except Exception as e:
         logging.error(f"An error occurred: {e}")
 

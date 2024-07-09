@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import List
 import asyncio
 
+from finrl.config import DATA_SOURCE
 from finrl.config import ALPACA_API_BASE_URL
 from finrl.config import DATA_SAVE_DIR
 from finrl.config import ERL_PARAMS
@@ -70,7 +71,7 @@ async def main() -> int:
             start_date=TRAIN_START_DATE,
             end_date=TRAIN_END_DATE,
             ticker_list=DOW_30_TICKER,
-            data_source="interactive_brokers",
+            data_source=DATA_SOURCE,
             time_interval="1D",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
@@ -94,7 +95,7 @@ async def main() -> int:
             start_date=TEST_START_DATE,
             end_date=TEST_END_DATE,
             ticker_list=DOW_30_TICKER,
-            data_source="interactive_brokers",
+            data_source=DATA_SOURCE,
             time_interval="1D",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
@@ -119,7 +120,7 @@ async def main() -> int:
             start_date=TRADE_START_DATE,
             end_date=TRADE_END_DATE,
             ticker_list=DOW_30_TICKER,
-            data_source="interactive_brokers",
+            data_source=DATA_SOURCE,
             time_interval="1D",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",

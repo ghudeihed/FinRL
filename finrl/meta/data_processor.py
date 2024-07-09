@@ -31,9 +31,8 @@ class DataProcessor:
 
         elif data_source == "interactive_brokers":
             from finrl.config import IB_GATEWAY_HOST, IB_GATEWAY_PORT, CLIENT_ID
-            
             self.processor = IBProcessor(IB_GATEWAY_HOST, IB_GATEWAY_PORT, CLIENT_ID)
-
+            self.processor.connect()  # Ensure connection is established before downloading data
         else:
             raise ValueError("Data source input is NOT supported yet.")
 

@@ -9,10 +9,9 @@ from finrl.config import TRAIN_START_DATE
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.meta.data_processor import DataProcessor
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
+from finrl.config import DATA_SOURCE
 
 # construct environment
-
-
 async def train(
     start_date,
     end_date,
@@ -28,20 +27,61 @@ async def train(
 ):
     # download data
     dp = DataProcessor(data_source, **kwargs)
-    data = await dp.download_data(ticker_list, start_date, end_date, time_interval)
-    print(f'Downloading data for ticker_list {ticker_list}, start_date {start_date}, end_date {end_date}, and time_interval {time_interval}')
 
+    data = await dp.download_data(ticker_list=ticker_list, start_date=start_date, end_date=end_date, time_interval=time_interval)
+    print(f'Downloading data for ticker_list {ticker_list}, start_date {start_date}, end_date {end_date}, and time_interval {time_interval}')
+    print("Raw data columns:", data.columns)
+    print("Raw data head:")
+    print(data.head())
+    
     data = dp.clean_data(data)
-    data = dp.add_technical_indicator(data, technical_indicator_list)
+    print("Cleaned data columns:", data.columns)
+    print("Cleaned data head:")
+    print(data.head())
+    
+    data = dp.add_technical_indicator(data, tech_indicator_list=technical_indicator_list)
+    print("Data with indicators columns:", data.columns)
+    print("Data with indicators head:")
+    print(data.head())
+    
     if if_vix:
         data = dp.add_vix(data)
-    price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
-    env_config = {
-        "price_array": price_array,
-        "tech_array": tech_array,
-        "turbulence_array": turbulence_array,
-        "if_train": True,
-    }
+        print("Final DataFrame columns:", data.columns)
+        print("Final DataFrame head:")
+        print(data.head())
+    else:
+        data = dp.add_turbulence(data)
+        print("Final DataFrame columns:", data.columns)
+        print("Final DataFrame head:")
+        print(data.head())
+    
+    try:
+        price_array, tech_array, turbulence_array  = dp.df_to_array(data, if_vix)
+        print("Price array shape:", price_array.shape)
+        print("Tech array shape:", tech_array.shape)
+        print("Turbulence array shape:", turbulence_array.shape)
+ 
+        env_config = {
+            "price_array": price_array,
+            "tech_array": tech_array,
+            "turbulence_array": turbulence_array,
+            "if_train": True,
+        }
+    except ValueError as e:
+        if "not enough values to unpack" in str(e):
+            price_array, tech_array = dp.df_to_array(data, if_vix=False)
+            print("Price array shape:", price_array.shape)
+            print("Tech array shape:", tech_array.shape)
+ 
+            env_config = {
+                "price_array": price_array,
+                "tech_array": tech_array,
+                "turbulence_array": None,
+                "if_train": True,
+            }
+        else:
+            raise e
+
     env_instance = env(config=env_config)
 
     # read parameters
