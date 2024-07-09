@@ -178,7 +178,7 @@ class IBProcessor:
                     else:
                         temp_indicator['timestamp'] = temp_indicator['timestamp'].dt.tz_convert('America/New_York')
                     
-                    print(f"temp_indicator: {temp_indicator.head()}")  # Debug print
+                    # print(f"temp_indicator: {temp_indicator.head()}")  # Debug print
                     indicator_df = pd.concat([indicator_df, temp_indicator], axis=0, ignore_index=True)
                 except Exception as e:
                     print(e)
@@ -209,12 +209,14 @@ class IBProcessor:
             if vix_bars:
                 vix_df = util.df(vix_bars).rename(columns={'date': 'timestamp', 'close': 'VIX'})
                 df = df.merge(vix_df[['timestamp', 'VIX']], on='timestamp', how='left')
-                df['VIX'] = df['VIX'].ffill()  # Forward fill VIX values
+                df['VIX'] = df['VIX'].ffill().fillna(0)  # Forward fill VIX values, fill NaN with 0
                 print("Finished adding VIX data")
             else:
                 print("No VIX data retrieved")
+                df['VIX'] = 0  # Set VIX to 0 if no data is retrieved
         except Exception as e:
             print(f"Error retrieving VIX data: {e}")
+            df['VIX'] = 0  # Set VIX to 0 if an error occurs
             print("Continuing without VIX data")
         
         return df
